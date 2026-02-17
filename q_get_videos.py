@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 
 try:
     from yt_dlp import YoutubeDL
-    from yt_dlp.utils import DownloadError
 except ImportError:
     print("Install yt-dlp: pip install yt-dlp", file=sys.stderr)
     raise
@@ -29,7 +28,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DOWNLOADS_DIR = SCRIPT_DIR / "downloads"
 METADATA_JSON = SCRIPT_DIR / "downloaded_videos.json"
 ERROR_LOG = SCRIPT_DIR / "download_errors.log"
-COOKIE_FILE = SCRIPT_DIR / "cookies.txt"
+COOKIES_FILE = SCRIPT_DIR / "cookies.txt"
 DELAY_BETWEEN_DOWNLOADS_SEC = 5
 
 RABBITMQ_HOST = os.environ["RABBITMQ_HOST"]
@@ -117,39 +116,17 @@ def download_and_collect_metadata(url: str) -> dict | None:
         "format": "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
     }
 
+    # Use cookies from cookies.txt if present (Netscape format for yt-dlp).
+    if COOKIES_FILE.exists():
+        ydl_opts["cookiefile"] = str(COOKIES_FILE)
+
+    # Enable remote EJS components so yt-dlp can solve YouTube JS challenges
+    # when using an external JS runtime (deno in this environment).
+    # Equivalent to CLI: --remote-components ejs:github
+    ydl_opts["remote_components"] = ["ejs:github"]
+
     with YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(url, download=True)
-        except DownloadError as e:
-            msg = (getattr(e, "msg", None) or str(e)).lower()
-            # Specific bot-check / sign-in requirement
-            if "sign in to confirm you" in msg and "not a bot" in msg:
-                print("\nYouTube requires sign-in / bot confirmation for this video.")
-                print(f"Please export your YouTube cookies to: {COOKIE_FILE}")
-                print("See: https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp")
-                print("and: https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies\n")
-
-                # Pause until user is ready
-                while True:
-                    cmd = input("Type 'go' to retry with cookies, or 'skip' to skip this video: ").strip().lower()
-                    if cmd in ("go", "skip"):
-                        break
-
-                if cmd == "skip":
-                    return None
-
-                if not COOKIE_FILE.exists():
-                    print(f"cookies.txt not found at {COOKIE_FILE}. Skipping this video.")
-                    return None
-
-                # Retry with cookies
-                retry_opts = {**ydl_opts, "cookiefile": str(COOKIE_FILE)}
-                with YoutubeDL(retry_opts) as ydl_cookies:
-                    info = ydl_cookies.extract_info(url, download=True)
-            else:
-                # Different DownloadError → let caller handle as usual
-                raise
-
+        info = ydl.extract_info(url, download=True)
         if not info:
             return None
 

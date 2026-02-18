@@ -192,13 +192,21 @@ def main() -> None:
     parser.add_argument(
         "folder",
         nargs="?",
-        default=".",
-        help="Folder containing {id}.mp4 files",
+        default="downloads",
+        help="Folder containing {id}.mp4 files (default: downloads/)",
     )
     parser.add_argument(
         "--base-url",
         default=os.environ.get("HIFFI_BASE_URL", "https://api.hiffi.com"),
         help="API base URL",
+    )
+    parser.add_argument(
+        "--limit",
+        "-n",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Upload only N files (for testing)",
     )
     args = parser.parse_args()
 
@@ -230,10 +238,16 @@ def main() -> None:
         print("No videos to upload (all missing metadata)")
         return
 
+    if args.limit is not None:
+        to_upload = to_upload[: args.limit]
+        print(f"Limit: uploading {len(to_upload)} file(s)")
+
     print(f"Uploading {len(to_upload)} videos to {args.base_url}")
     tokens_by_username: dict[str, str] = {}
     done_dir = folder.parent / "downloads_done"
     done_dir.mkdir(parents=True, exist_ok=True)
+    errors_dir = folder.parent / "download_errors"
+    errors_dir.mkdir(parents=True, exist_ok=True)
 
     for video_path, meta in to_upload:
         vid_id = meta["id"]
@@ -241,6 +255,17 @@ def main() -> None:
         try:
             upload_video(args.base_url, str(video_path), meta, tokens_by_username)
             shutil.move(str(video_path), str(done_dir / video_path.name))
+        except requests.exceptions.HTTPError as e:
+            if (
+                e.response is not None
+                and e.response.status_code == 400
+                and "register-direct" in (e.response.url or "")
+            ):
+                print(f"  Register-direct 400, moving to download_errors/", file=sys.stderr)
+                shutil.move(str(video_path), str(errors_dir / video_path.name))
+            else:
+                print(f"  Failed: {e}", file=sys.stderr)
+                raise
         except Exception as e:
             print(f"  Failed: {e}", file=sys.stderr)
             raise

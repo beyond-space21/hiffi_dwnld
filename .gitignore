@@ -2,6 +2,7 @@
 *venv/
 downloads/
 downloads_done/
+download_errors/
 downloaded_videos.json
 download_errors.log
 *.zip

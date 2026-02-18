@@ -1,6 +1,7 @@
 *.env
 *venv/
 downloads/
+downloads_done/
 downloaded_videos.json
 download_errors.log
 *.zip
